@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,13 +32,33 @@ public class RiskCalculationService {
     }
 
     public HedgeRiskIndex calculateHedgeRiskIndex() {
-        log.info("开始计算对冲风险指数...");
+        log.info("开始计算对冲风险指数(使用内置行情数据)...");
+        List<StockQuote> allQuotes = marketDataService.getAllQuotes();
+        return calculateHedgeRiskIndex(allQuotes);
+    }
 
-        List<StockQuote> goldQuotes = marketDataService.getQuotesByType(StockEnum.StockType.GOLD);
-        List<StockQuote> silverQuotes = marketDataService.getQuotesByType(StockEnum.StockType.SILVER);
+    public HedgeRiskIndex calculateHedgeRiskIndex(List<StockQuote> inputQuotes) {
+        log.info("开始计算对冲风险指数, 输入股票数量: {}", inputQuotes == null ? 0 : inputQuotes.size());
+
+        if (inputQuotes == null || inputQuotes.isEmpty()) {
+            throw new BusinessException(ResultCode.INSUFFICIENT_DATA, "未提供任何股票数据");
+        }
+
+        List<StockQuote> goldQuotes = new ArrayList<>();
+        List<StockQuote> silverQuotes = new ArrayList<>();
+
+        for (StockQuote quote : inputQuotes) {
+            String type = resolveStockType(quote);
+            if ("GOLD".equals(type)) {
+                goldQuotes.add(normalizeQuote(quote));
+            } else if ("SILVER".equals(type)) {
+                silverQuotes.add(normalizeQuote(quote));
+            }
+        }
 
         if (goldQuotes.isEmpty() || silverQuotes.isEmpty()) {
-            throw new BusinessException(ResultCode.INSUFFICIENT_DATA, "黄金或白银类股票数据不足");
+            throw new BusinessException(ResultCode.INSUFFICIENT_DATA,
+                    "黄金或白银类股票数据不足，当前黄金类：" + goldQuotes.size() + "只，白银类：" + silverQuotes.size() + "只");
         }
 
         BigDecimal goldAvgChange = calculateAvgChangePercent(goldQuotes);
@@ -85,7 +106,12 @@ public class RiskCalculationService {
     }
 
     public RiskAnalysisReport generateRiskReport() {
-        HedgeRiskIndex riskIndex = calculateHedgeRiskIndex();
+        List<StockQuote> allQuotes = marketDataService.getAllQuotes();
+        return generateRiskReport(allQuotes);
+    }
+
+    public RiskAnalysisReport generateRiskReport(List<StockQuote> inputQuotes) {
+        HedgeRiskIndex riskIndex = calculateHedgeRiskIndex(inputQuotes);
 
         List<String> riskFactors = new ArrayList<>();
         List<String> suggestions = new ArrayList<>();
@@ -222,7 +248,61 @@ public class RiskCalculationService {
             return BigDecimal.ZERO;
         }
         return quotes.stream()
-                .map(q -> BigDecimal.valueOf(q.getVolume()))
+                .map(q -> BigDecimal.valueOf(q.getVolume() == null ? 0L : q.getVolume()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private String resolveStockType(StockQuote quote) {
+        if (quote == null) {
+            return null;
+        }
+
+        String type = quote.getStockType();
+        String name = quote.getStockName();
+        String code = quote.getStockCode();
+
+        if (type != null && !type.trim().isEmpty()) {
+            String t = type.trim().toUpperCase();
+            if (t.contains("GOLD") || t.contains("AU") || t.contains("黄金") || t.equals("金")) {
+                return "GOLD";
+            }
+            if (t.contains("SILVER") || t.contains("AG") || t.contains("白银") || t.contains("银")) {
+                return "SILVER";
+            }
+        }
+
+        if (name != null && !name.trim().isEmpty()) {
+            String n = name.trim();
+            if (n.contains("黄金") || n.contains("金")) {
+                return "GOLD";
+            }
+            if (n.contains("白银") || n.contains("银")) {
+                return "SILVER";
+            }
+        }
+
+        if (code != null && !code.trim().isEmpty()) {
+            StockEnum stockEnum = StockEnum.getByCode(code.trim());
+            if (stockEnum != null) {
+                return stockEnum.getType().name();
+            }
+        }
+
+        log.warn("无法识别股票类型，跳过该股票: code={}, name={}, type={}", code, name, type);
+        return null;
+    }
+
+    private StockQuote normalizeQuote(StockQuote quote) {
+        StockQuote normalized = new StockQuote();
+        normalized.setStockCode(quote.getStockCode() == null ? "" : quote.getStockCode());
+        normalized.setStockName(quote.getStockName() == null ? "未命名" : quote.getStockName());
+        normalized.setStockType(resolveStockType(quote));
+        normalized.setPrice(quote.getPrice() == null ? BigDecimal.ZERO : quote.getPrice());
+        normalized.setChangePercent(quote.getChangePercent() == null ? BigDecimal.ZERO : quote.getChangePercent());
+        normalized.setChangeAmount(quote.getChangeAmount() == null ? BigDecimal.ZERO : quote.getChangeAmount());
+        normalized.setVolume(quote.getVolume() == null ? 0L : quote.getVolume());
+        normalized.setTurnover(quote.getTurnover() == null ? BigDecimal.ZERO : quote.getTurnover());
+        normalized.setTradeDate(quote.getTradeDate() == null ? LocalDate.now() : quote.getTradeDate());
+        return normalized;
     }
 }
