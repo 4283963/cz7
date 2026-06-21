@@ -24,3 +24,15 @@ management:
     web:
       exposure:
         include: health,info,metrics
+
+hedge:
+  alert:
+    safety-line: 50
+    extreme-line: 70
+    worst-stock-count: 3
+    enable-log-alert: true
+    enable-email-alert: true
+    email-recipient: trader@preciousmetal.com
+    email-sender: alert@preciousmetal.com
+    email-store-path: logs/alerts/
+

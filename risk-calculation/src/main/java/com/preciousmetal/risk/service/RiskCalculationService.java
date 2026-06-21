@@ -5,6 +5,7 @@ import com.preciousmetal.common.result.ResultCode;
 import com.preciousmetal.marketdata.enums.StockEnum;
 import com.preciousmetal.marketdata.model.StockQuote;
 import com.preciousmetal.marketdata.service.MarketDataService;
+import com.preciousmetal.risk.alert.AlertService;
 import com.preciousmetal.risk.model.HedgeRiskIndex;
 import com.preciousmetal.risk.model.RiskAnalysisReport;
 import com.preciousmetal.risk.model.RiskLevel;
@@ -26,9 +27,11 @@ public class RiskCalculationService {
     private static final Logger log = LoggerFactory.getLogger(RiskCalculationService.class);
 
     private final MarketDataService marketDataService;
+    private final AlertService alertService;
 
-    public RiskCalculationService(MarketDataService marketDataService) {
+    public RiskCalculationService(MarketDataService marketDataService, AlertService alertService) {
         this.marketDataService = marketDataService;
+        this.alertService = alertService;
     }
 
     public HedgeRiskIndex calculateHedgeRiskIndex() {
@@ -102,6 +105,9 @@ public class RiskCalculationService {
                 .build();
 
         log.info("对冲风险指数计算完成: 指数={}, 等级={}", result.getRiskIndex(), riskLevel);
+
+        alertService.checkAndTriggerAlert(result, inputQuotes);
+
         return result;
     }
 
